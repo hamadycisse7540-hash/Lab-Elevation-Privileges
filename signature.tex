@@ -1,0 +1,23 @@
+% =====================================================================
+%  Bloc signature / marque — HAMADY CISSE
+%  Réutilisable : copier ce fichier dans un projet et faire
+%      \input{signature.tex}      (dans le préambule)
+%  puis appeler  \signatureHamady  là où la signature doit apparaître.
+%  Dépendances : xcolor (déjà chargé dans les rapports du mentorat).
+% =====================================================================
+
+\definecolor{sigblue}{HTML}{1E70BF}
+
+% Empreinte GPG (fingerprint) — à remplacer après génération de la clé.
+\newcommand{\gpgEmpreinte}{A6F4 0DFD EE3E B7AE 80B3\ 6E77 361C 9E02 B790 303E}
+
+\newcommand{\signatureHamady}{%
+  \par\vspace{1.2em}%
+  \noindent{\color{sigblue}\rule{\linewidth}{0.6pt}}\par\vspace{0.4em}%
+  \noindent{\bfseries\large HAMADY CISSE}\par\vspace{0.15em}%
+  \noindent{\small Diplômé en Cryptographie et Sécurité de l'Information}\par\vspace{0.35em}%
+  \noindent{\footnotesize\ttfamily Courriel : hamadycisse7540@gmail.com \quad GitHub : hamadycisse7540-hash}\par\vspace{0.1em}%
+  \noindent{\footnotesize\ttfamily Empreinte GPG : \gpgEmpreinte}\par\vspace{0.3em}%
+  \noindent{\scriptsize\itshape Document signé numériquement (GPG). Vérifiez son authenticité et son intégrité avec la clé publique ci-dessus.}\par\vspace{0.4em}%
+  \noindent{\color{sigblue}\rule{\linewidth}{0.6pt}}\par
+}

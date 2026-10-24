@@ -1,0 +1,21 @@
+# --- Fichiers temporaires LaTeX ---
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb
+
+# --- Énoncé original de l'encadrant (non publié) ---
+\[Lab\] - Elevation de privilege.pdf
+
+# --- Captures brutes de la galerie (staging, non publié) ---
+images/galerie_23-24oct/

